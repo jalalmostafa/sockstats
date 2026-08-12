@@ -65,3 +65,4 @@ src/sockstats
 src/socktrace
 socktraceebpf_bpfe*
 *.csv
+notebooks/

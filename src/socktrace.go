@@ -30,6 +30,7 @@ var CONTROL_PROGRAMS = []string{"trace_kernel_clone", "trace_fd_install"}
 type SocktraceArgs struct {
 	help bool
 	file bool
+	pid  uint
 }
 
 type SocketEvent struct {
@@ -324,6 +325,7 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime)
 	flag.BoolVar(&args.help, "h", false, "Prints this help text.")
 	flag.BoolVar(&args.file, "f", false, "Output Events to a CSV file.")
+	flag.UintVar(&args.pid, "a", 0, "Attach to PID.")
 	flag.Usage = func() {
 		fmt.Printf("Usage: %s [options] program args..\n", os.Args[0])
 		flag.PrintDefaults()
@@ -339,8 +341,12 @@ func main() {
 
 	program_cmdline := flag.Args()
 
-	if len(program_cmdline) == 0 {
-		log.Fatalln("Program not specified!")
+	if len(program_cmdline) == 0 && args.pid == 0 {
+		log.Fatalln("No program is specified!")
+	}
+
+	if len(program_cmdline) > 0 && args.pid > 0 {
+		log.Fatalln("Either -a or command should be specified!")
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -357,12 +363,20 @@ func main() {
 		log.Fatalln(err.Error())
 	}
 
-	pid, err := LaunchProgram(program_cmdline)
+	var pid int
+	if len(program_cmdline) != 0 {
+		pid, err = LaunchProgram(program_cmdline)
+	} else if args.pid > 0 {
+		pid, err = int(args.pid), nil
+	} else {
+		err = errors.New("Either -a or command should be specified!")
+	}
+
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
 
-	log.Printf("Launched Program with PID(%d): %v", pid, program_cmdline)
+	log.Printf("Monitoring Program with PID(%d)", pid)
 
 	var logger *SocktraceEventLog = nil
 	if args.file {

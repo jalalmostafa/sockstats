@@ -107,7 +107,6 @@ SEC("fexit/kernel_clone")
 int BPF_PROG(trace_kernel_clone, struct kernel_clone_args* args, long ret)
 {
     caller_check();
-    bpf_printk("Catched process %d\n", ret);
 
     if (ret <= 0 || (args->flags & CLONE_THREAD))
         return 0;
