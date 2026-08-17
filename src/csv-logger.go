@@ -7,15 +7,15 @@ import (
 )
 
 type SocktraceEventLog struct {
-	pid  int
+	pids PidList
 	file *os.File
 }
 
-func CreateEventLoggerWithHeaders(pid int) (*SocktraceEventLog, error) {
+func CreateEventLoggerWithHeaders(pids PidList) (*SocktraceEventLog, error) {
 	var err error
 	perf := new(SocktraceEventLog)
-	perf.pid = pid
-	path := fmt.Sprintf("socktrace-%d.csv", pid)
+	perf.pids = pids
+	path := fmt.Sprintf("socktrace-%v.csv", pids.String())
 
 	perf.file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {

@@ -27,6 +27,30 @@ const (
 
 var CONTROL_PROGRAMS = []string{"trace_kernel_clone", "trace_fd_install"}
 
+type PidList []uint
+
+func (pids PidList) Set(value string) error {
+	pidsStr := strings.Split(value, ",")
+	for _, pid := range pidsStr {
+		pid_i, err := strconv.Atoi(pid)
+		if err != nil {
+			return err
+		}
+		pids = append(pids, uint(pid_i))
+	}
+
+	return nil
+}
+
+func (pids PidList) String() string {
+	var pids_s []string
+	for _, pid := range pids {
+		pid_s := strconv.Itoa(int(pid))
+		pids_s = append(pids_s, pid_s)
+	}
+	return strings.Join(pids_s, ",")
+}
+
 type SocktraceArgs struct {
 	help bool
 	file bool
@@ -138,13 +162,13 @@ var socktrace_syscalls = map[uint32]string{
 	SOCKTRACE_SYSCALL_SOCKETPAIR:    "socketpair",
 }
 
-func LaunchProgram(cmd []string) (int, error) {
+func LaunchProgram(cmd []string) (uint, error) {
 	if len(cmd) == 0 {
-		return -1, errors.New("invalid program")
+		return 0, errors.New("invalid program")
 	}
 
 	pid_ptr, _, errno := syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
-	pid := int(pid_ptr)
+	pid := uint(pid_ptr)
 
 	if pid != 0 {
 		if errno != 0 {
@@ -179,59 +203,7 @@ func LaunchProgram(cmd []string) (int, error) {
 	return 0, err
 }
 
-func WaitProgram(pid int) (bool, int) {
-	var ws syscall.WaitStatus
-	var rusage syscall.Rusage
-	wpid, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, &rusage)
-
-	if wpid == pid && err == nil && ws.Exited() {
-		return true, ws.ExitStatus()
-	}
-
-	return false, -1
-}
-
-func TerminateProgram(pid int) error {
-	process, err := os.FindProcess(pid)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-
-	if err != nil {
-		return err
-	}
-
-	if err = process.Signal(syscall.SIGTERM); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
-			return nil
-		}
-
-		if err := process.Kill(); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func ReadSymbolAddress(symbol string) (uint64, error) {
-	kallsyms, err := os.ReadFile("/proc/kallsyms")
-	if err != nil {
-		return 0, err
-	}
-	symbols := strings.Split(string(kallsyms), "\n")
-	for _, line := range symbols {
-		parts := strings.Split(line, " ")
-		if parts[2] == symbol {
-			return strconv.ParseUint(parts[0], 16, 64)
-		}
-
-	}
-
-	return 0, errors.New("Symbol " + symbol + " Not Found")
-}
-
-func (tracer *SockTracer) AttachMonitor(pid uint32) error {
+func (tracer *SockTracer) AttachMonitor(pids PidList) error {
 	epoll_fops_ptr, err := ReadSymbolAddress("eventpoll_fops")
 	if err != nil {
 		return err
@@ -244,9 +216,11 @@ func (tracer *SockTracer) AttachMonitor(pid uint32) error {
 		return err
 	}
 
-	err = tracer.Objs.TargetPids.Update(pid, uint32(1), ebpf.UpdateAny)
-	if err != nil {
-		return err
+	for _, pid := range pids {
+		err = tracer.Objs.TargetPids.Update(uint32(pid), uint32(1), ebpf.UpdateAny)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = tracer.Objs.EventpollFopsPtr.Set(epoll_fops_ptr)
@@ -326,6 +300,7 @@ func main() {
 	flag.BoolVar(&args.help, "h", false, "Prints this help text.")
 	flag.BoolVar(&args.file, "f", false, "Output Events to a CSV file.")
 	flag.UintVar(&args.pid, "a", 0, "Attach to PID.")
+	// flag.Var(args.pids, "PIDs", "PID List")
 	flag.Usage = func() {
 		fmt.Printf("Usage: %s [options] program args..\n", os.Args[0])
 		flag.PrintDefaults()
@@ -363,24 +338,29 @@ func main() {
 		log.Fatalln(err.Error())
 	}
 
-	var pid int
+	var pids PidList
 	if len(program_cmdline) != 0 {
-		pid, err = LaunchProgram(program_cmdline)
+		pid, err := LaunchProgram(program_cmdline)
+		if err != nil {
+			log.Fatalln(err.Error())
+		}
+		pids = append(pids, pid)
 	} else if args.pid > 0 {
-		pid, err = int(args.pid), nil
+		pids = append(pids, args.pid)
+		children, err := GetProcessChildren(args.pid)
+		if err != nil {
+			log.Fatalln(err.Error())
+		}
+		pids = append(pids, children...)
 	} else {
-		err = errors.New("Either -a or command should be specified!")
+		log.Fatalln(errors.New("Either -a or command should be specified!"))
 	}
 
-	if err != nil {
-		log.Fatalln(err.Error())
-	}
-
-	log.Printf("Monitoring Program with PID(%d)", pid)
+	log.Printf("Monitoring Program with PIDs = %v", pids.String())
 
 	var logger *SocktraceEventLog = nil
 	if args.file {
-		logger, err = CreateEventLoggerWithHeaders(pid)
+		logger, err = CreateEventLoggerWithHeaders(pids)
 		if err != nil {
 			log.Fatalln(err.Error())
 		}
@@ -388,7 +368,7 @@ func main() {
 	}
 
 	tracer := new(SockTracer)
-	err = tracer.AttachMonitor(uint32(pid))
+	err = tracer.AttachMonitor(pids)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -425,15 +405,15 @@ loop:
 		case pid := <-tracer.ProcessRing.Channel:
 			log.Printf("New Process Addeed: %d\n", pid)
 		default:
-			exited, exit_status := WaitProgram(pid)
+			exited, exit_status := WaitProgram(int(args.pid))
 			if exited {
-				log.Printf("Program process(%d) exited with status=%d", pid, exit_status)
+				log.Printf("Program process(%d) exited with status=%d", int(args.pid), exit_status)
 				break loop
 			}
 		}
 	}
 
-	if err := TerminateProgram(pid); err != nil {
+	if err := TerminateProgram(args.pid); err != nil {
 		log.Fatalln("Failed terminating process", err.Error())
 	}
 
