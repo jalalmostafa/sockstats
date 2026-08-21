@@ -2,13 +2,82 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/shirou/gopsutil/v3/process"
 )
+
+var socketInodeRe = regexp.MustCompile(`^socket:\[(\d+)\]$`)
+
+func parseUnixSockets() ([]uint64, error) {
+	content, err := os.ReadFile("/proc/net/unix")
+	if err != nil {
+		return nil, err
+	}
+
+	lines := slices.Collect(strings.Lines(string(content)))
+	inodes := make([]uint64, len(lines)-1)
+
+	for _, line := range lines[1:] {
+		parts := strings.Fields(line)
+		inode, err := strconv.ParseUint(parts[6], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		inodes = append(inodes, inode)
+	}
+
+	return inodes, nil
+}
+
+func GetProcessSocketInodes(pid uint) (map[uint32]uint64, error) {
+	fdDir := fmt.Sprintf("/proc/%d/fd", pid)
+	entries, err := os.ReadDir(fdDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", fdDir, err)
+	}
+
+	unix_inodes, err := parseUnixSockets()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[uint32]uint64)
+	for _, entry := range entries {
+		fdNum, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			return nil, err
+		}
+
+		linkPath := filepath.Join(fdDir, entry.Name())
+		target, err := os.Readlink(linkPath)
+		if err != nil {
+			return nil, err
+		}
+
+		if m := socketInodeRe.FindStringSubmatch(target); m != nil {
+			inode, err := strconv.ParseUint(m[1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
+			if slices.Contains(unix_inodes, inode) {
+				continue
+			}
+
+			result[uint32(fdNum)] = inode
+		}
+	}
+
+	return result, nil
+}
 
 func GetProcessChildren(pid uint) (PidList, error) {
 	p, err := process.NewProcess(int32(pid))
@@ -26,14 +95,26 @@ func GetProcessChildren(pid uint) (PidList, error) {
 		return nil, err
 	}
 
-	var pids PidList
+	pids := make(PidList)
+	fdinodes, err := GetProcessSocketInodes(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	pids.Add(pid, fdinodes)
+
 	for _, child := range children {
 		tgid, err := child.Tgid()
 		if err != nil {
 			return nil, err
 		}
 		if tgid != parent_tgid {
-			pids = append(pids, uint(child.Pid))
+			child_pid := uint(child.Pid)
+			fdinodes, err := GetProcessSocketInodes(child_pid)
+			if err != nil {
+				return nil, err
+			}
+			pids.Add(child_pid, fdinodes)
 		}
 	}
 	return pids, nil

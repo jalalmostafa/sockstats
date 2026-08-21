@@ -27,7 +27,7 @@ const (
 
 var CONTROL_PROGRAMS = []string{"trace_kernel_clone", "trace_fd_install"}
 
-type PidList []uint
+type PidList map[uint]map[uint32]uint64
 
 func (pids PidList) Set(value string) error {
 	pidsStr := strings.Split(value, ",")
@@ -36,15 +36,20 @@ func (pids PidList) Set(value string) error {
 		if err != nil {
 			return err
 		}
-		pids = append(pids, uint(pid_i))
+		pids.Add(uint(pid_i), nil)
 	}
 
 	return nil
 }
 
+func (list PidList) Add(pid uint, fdinodes map[uint32]uint64) error {
+	list[pid] = fdinodes
+	return nil
+}
+
 func (pids PidList) String() string {
 	var pids_s []string
-	for _, pid := range pids {
+	for pid := range pids {
 		pid_s := strconv.Itoa(int(pid))
 		pids_s = append(pids_s, pid_s)
 	}
@@ -216,10 +221,19 @@ func (tracer *SockTracer) AttachMonitor(pids PidList) error {
 		return err
 	}
 
-	for _, pid := range pids {
+	for pid, fd_inodes := range pids {
 		err = tracer.Objs.TargetPids.Update(uint32(pid), uint32(1), ebpf.UpdateAny)
 		if err != nil {
 			return err
+		}
+
+		for fd, inode := range fd_inodes {
+			tgidfd := (uint64(pid) << 32) | uint64(fd)
+			sockctx := SocktraceEbpfSockCtxT{Inode: inode, HowClosed: 0}
+			err = tracer.Objs.RegSockets.Update(tgidfd, sockctx, ebpf.UpdateNoExist)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -344,14 +358,13 @@ func main() {
 		if err != nil {
 			log.Fatalln(err.Error())
 		}
-		pids = append(pids, pid)
+		pids = make(PidList)
+		pids.Add(pid, nil)
 	} else if args.pid > 0 {
-		pids = append(pids, args.pid)
-		children, err := GetProcessChildren(args.pid)
+		pids, err = GetProcessChildren(args.pid)
 		if err != nil {
 			log.Fatalln(err.Error())
 		}
-		pids = append(pids, children...)
 	} else {
 		log.Fatalln(errors.New("Either -a or command should be specified!"))
 	}
