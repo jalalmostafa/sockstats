@@ -16,6 +16,8 @@ import (
 
 var socketInodeRe = regexp.MustCompile(`^socket:\[(\d+)\]$`)
 
+const ANON_INODE = "anon_inode:[eventpoll]"
+
 func parseUnixSockets() ([]uint64, error) {
 	content, err := os.ReadFile("/proc/net/unix")
 	if err != nil {
@@ -73,6 +75,14 @@ func GetProcessSocketInodes(pid uint) (map[uint32]uint64, error) {
 			}
 
 			result[uint32(fdNum)] = inode
+		} else if target == ANON_INODE {
+			info, err := os.Stat(fmt.Sprintf("/proc/%d/fd/%d", pid, fdNum))
+			if err != nil {
+				return nil, err
+			}
+
+			fstat := info.Sys().(*syscall.Stat_t)
+			result[uint32(fdNum)] = fstat.Ino
 		}
 	}
 
