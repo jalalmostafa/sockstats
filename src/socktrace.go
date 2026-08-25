@@ -77,7 +77,7 @@ type SockTracer struct {
 	Context     context.Context
 	Links       []link.Link
 	EventsRing  *RingChannel[SocketEvent]
-	ProcessRing *RingChannel[uint32]
+	ProcessRing *RingChannel[uint64]
 }
 
 const (
@@ -283,7 +283,7 @@ func (tracer *SockTracer) AttachMonitor(pids PidList) error {
 	tracer.EventsRing = new(RingChannel[SocketEvent])
 	tracer.EventsRing.Init(tracer.Objs.Events)
 
-	tracer.ProcessRing = new(RingChannel[uint32])
+	tracer.ProcessRing = new(RingChannel[uint64])
 	tracer.ProcessRing.Init(tracer.Objs.ProcessEvents)
 
 	log.Println("Loaded eBPF Objects!")
@@ -415,8 +415,14 @@ loop:
 					event.Pid, event.Tgid, socktrace_syscalls[event.Operation],
 					event.FileDescriptor)
 			}
-		case pid := <-tracer.ProcessRing.Channel:
-			log.Printf("New Process Addeed: %d\n", pid)
+		case returned := <-tracer.ProcessRing.Channel:
+			success := (returned >> 32) == 1
+			pid := returned & 0xFFFFFFFF
+			if success {
+				log.Printf("New Process Added: %d\n", pid)
+			} else {
+				log.Printf("Failed to add process: %d\n", pid)
+			}
 		default:
 			exited, exit_status := WaitProgram(int(args.pid))
 			if exited {

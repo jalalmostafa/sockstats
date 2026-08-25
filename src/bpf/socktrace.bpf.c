@@ -44,13 +44,6 @@ struct {
     __type(value, void*); // pointer to FDs
 } socketpair_registry SEC(".maps");
 
-static inline const char* syscallstr(socktrace_syscall_t syscall)
-{
-    if (syscall < SOCKTRACE_SYSCALL_MAX)
-        return syscall_strings[syscall];
-    return NULL;
-}
-
 static int socket_add(__u32 fd, __u64 inode)
 {
     __u64 tgid_fd = (bpf_get_current_pid_tgid() & 0xFFFFFFFF00000000) | fd;
@@ -111,15 +104,26 @@ int BPF_PROG(trace_kernel_clone, struct kernel_clone_args* args, long ret)
     if (ret <= 0 || (args->flags & CLONE_THREAD))
         return 0;
 
-    __u32 r = 1;
-    if (bpf_map_update_elem(&target_pids, &ret, &r, 0) < 0)
-        bpf_printk("Failed to add new process");
-
-    __u32* buf = bpf_ringbuf_reserve(&process_events, sizeof(__u32), 0);
-    if (buf == NULL) 
+    struct task_struct* task = bpf_task_from_vpid(ret);
+    if (task == NULL)
         return 0;
 
-    *buf = ret;
+    struct pid* pid = BPF_CORE_READ(task, group_leader, thread_pid);
+    u32 p0 = BPF_CORE_READ(pid, numbers[0].nr);
+    bpf_task_release(task);
+
+    __u32 r = 1;
+    __u64 success = 1;
+    if (bpf_map_update_elem(&target_pids, &p0, &r, 0) < 0) {
+        bpf_printk("Failed to add new process %d", ret);
+        success = 0;
+    }
+
+    __u64* buf = (__u64*)bpf_ringbuf_reserve(&process_events, sizeof(__u64), 0);
+    if (buf == NULL)
+        return 0;
+
+    *buf = (success << 32) | p0;
     bpf_ringbuf_submit(buf, 0);
 
     return 0;

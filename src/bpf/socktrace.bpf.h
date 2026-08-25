@@ -11,8 +11,8 @@
 #define SOCKTRACE_NFDBITS_MASK (SOCKTRACE_NFDBITS - 1)
 #define SOCKTRACE_LENGTH (1024 / SOCKTRACE_NFDBITS)
 
-#define MAX_PROCESSES 256
-#define MAX_SOCKETS SOCKTRACE_NFDBITS
+#define MAX_PROCESSES 1024
+#define MAX_SOCKETS 1024
 
 enum socktrace_syscall {
     SOCKTRACE_SYSCALL_SOCKET,
@@ -60,49 +60,6 @@ enum socktrace_syscall {
 };
 
 typedef enum socktrace_syscall socktrace_syscall_t;
-
-const char* syscall_strings[] = {
-    [SOCKTRACE_SYSCALL_SOCKET] = "socket",
-    [SOCKTRACE_SYSCALL_BIND] = "bind",
-    [SOCKTRACE_SYSCALL_LISTEN] = "listen",
-    [SOCKTRACE_SYSCALL_CONNECT] = "connect",
-    [SOCKTRACE_SYSCALL_ACCEPT] = "accept",
-    [SOCKTRACE_SYSCALL_ACCEPT4] = "accept4",
-    [SOCKTRACE_SYSCALL_RECVFROM] = "recvfrom",
-    [SOCKTRACE_SYSCALL_RECVMSG] = "recvmsg",
-    [SOCKTRACE_SYSCALL_RECVMMSG] = "recvmmsg",
-    [SOCKTRACE_SYSCALL_SENDTO] = "sendto",
-    [SOCKTRACE_SYSCALL_SENDMSG] = "sendmsg",
-    [SOCKTRACE_SYSCALL_SENDMMSG] = "sendmmsg",
-    [SOCKTRACE_SYSCALL_SETSOCKOPT] = "setsockopt",
-    [SOCKTRACE_SYSCALL_GETSOCKOPT] = "getsockopt",
-    [SOCKTRACE_SYSCALL_GETPEERNAME] = "getpeername",
-    [SOCKTRACE_SYSCALL_GETSOCKNAME] = "getsockname",
-    [SOCKTRACE_SYSCALL_SHUTDOWN] = "shutdown",
-    [SOCKTRACE_SYSCALL_READ] = "read",
-    [SOCKTRACE_SYSCALL_READV] = "readv",
-    [SOCKTRACE_SYSCALL_WRITE] = "write",
-    [SOCKTRACE_SYSCALL_WRITEV] = "writev",
-    [SOCKTRACE_SYSCALL_CLOSE] = "close",
-    [SOCKTRACE_SYSCALL_POLL] = "poll",
-    [SOCKTRACE_SYSCALL_PPOLL] = "ppoll",
-    [SOCKTRACE_SYSCALL_SELECT] = "select",
-    [SOCKTRACE_SYSCALL_PSELECT] = "pselect",
-    [SOCKTRACE_SYSCALL_EPOLL_CREATE] = "epoll_create",
-    [SOCKTRACE_SYSCALL_EPOLL_CREATE1] = "epoll_create1",
-    [SOCKTRACE_SYSCALL_EPOLL_CTL] = "epoll_ctl",
-    [SOCKTRACE_SYSCALL_EPOLL_WAIT] = "epoll_wait",
-    [SOCKTRACE_SYSCALL_EPOLL_PWAIT] = "epoll_pwait",
-    [SOCKTRACE_SYSCALL_EPOLL_PWAIT2] = "epoll_pwait2",
-    [SOCKTRACE_SYSCALL_SENDFILE64] = "sendfile",
-    [SOCKTRACE_SYSCALL_IOCTL] = "ioctl",
-    [SOCKTRACE_SYSCALL_SPLICE] = "splice",
-    [SOCKTRACE_SYSCALL_TEE] = "tee",
-    [SOCKTRACE_SYSCALL_DUP] = "dup",
-    [SOCKTRACE_SYSCALL_DUP2] = "dup2",
-    [SOCKTRACE_SYSCALL_DUP3] = "dup3",
-    [SOCKTRACE_SYSCALL_SOCKETPAIR] = "socketpair",
-};
 
 typedef struct {
     struct pollfd* fds;
