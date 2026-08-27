@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/shirou/gopsutil/v3/process"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 var socketInodeRe = regexp.MustCompile(`^socket:\[(\d+)\]$`)
@@ -100,11 +100,6 @@ func GetProcessChildren(pid uint) (PidList, error) {
 		return nil, err
 	}
 
-	children, err := p.Children()
-	if err != nil {
-		return nil, err
-	}
-
 	pids := make(PidList)
 	fdinodes, err := GetProcessSocketInodes(pid)
 	if err != nil {
@@ -112,6 +107,15 @@ func GetProcessChildren(pid uint) (PidList, error) {
 	}
 
 	pids.Add(pid, fdinodes)
+
+	children, err := p.Children()
+	if err == process.ErrorNoChildren {
+		return pids, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
 
 	for _, child := range children {
 		tgid, err := child.Tgid()
